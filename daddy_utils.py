@@ -4,25 +4,23 @@ from socket import socket
 import signal
 import re
 import threading
+from queue import Queue
 
 
 class DaddyUtils(object):
     def __init__(self):
-        self.is_specific_event_on = False
         self.channel = self._open_channel()
-        channel_parser = threading.Thread(target=self._read_channel_and_parse)
-        channel_parser.start()
-        self.threads = [channel_parser]
         self.should_record_channel = False
-    
-    def stop(self):
-        print("Stopping reading channel")
-        self.should_read_channel = False
-        self.should_record_channel = False
+        self.output("off")
+        self.data_queue = Queue()
+        self.events_queue = Queue()
+        channel_parser = threading.Thread(target=self._read_channel_and_parse)  # only because mock
+        event_getter = threading.Thread(target=self._get_events)
+        stuff_detector = threading.Thread(target=self._detect_stuff)
+        self.threads = [channel_parser, event_getter, stuff_detector]
         for thread in self.threads:
-            thread.join()
-        self._close_channel()
-
+            thread.start()
+    
     def _open_channel(self):
         channel = socket()
         channel.connect(("127.0.0.1", 12345))
@@ -50,47 +48,58 @@ class DaddyUtils(object):
             # we are doing this in order to block the main thread (Press Ctrl+C to stop though)
             pass
 
-    # def _get_events(self):
-    #     print("Getting events... (Press Ctrl+C to stop)")
-    #     regex = "EVENT> (\d)"
-    #     while self.should_read_channel:
-    #         data = self._read_channel() <- in real life it would be self._read_events()
-    #         # TODO: 2 threads reading the same socket like this means data will be missed
-    #         matches = re.findall(regex, data)
-    #         if matches:
-    #             for event_id in matches:
-    #                 print(f"Event {event_id} occurred")
-    #         time.sleep(0.1)
-
-    # def _detect_stuff(self):
-    #     print("Detecting stuff... (Press Ctrl+C to stop)")
-    #     regex = "STUFF> (\d)"
-    #     self.should_read_channel = True
-    #     while self.should_read_channel:
-    #         data = self._read_channel()
-    #         # TODO: 2 threads reading the same socket like this means data will be missed
-    #         matches = re.findall(regex, data)
-    #         if matches:
-    #             for stuff_num in matches:
-    #                 print(f"Stuff {stuff_num} occurred")
-    #         time.sleep(0.1)
-    
     def _read_channel_and_parse(self):
-        print("Getting events & detecting stuff... (Press Ctrl+C to stop)")
-        regex = r"STUFF> (?P<stuff>\d)|EVENT> (?P<event>\d)"
+        print("Reading the channel... (run stop() to stop)")
+        regex = r"EVENT> (\d)"
         self.should_read_channel = True
         while self.should_read_channel:
             data = self._read_channel()
             matches = re.findall(regex, data)
             if matches:
-                for match in matches:
-                    if match[0]:  # TODO: and should_print_stuff
-                        print(f"Stuff {match[0]} occurred")
-                    if match[1]:  # TODO: and should_print_events
-                        print(f"Event {match[1]} occurred")
+                for event_id in matches:
+                    self.events_queue.put(event_id)
+            data = re.sub(regex, "", data)  # removes all regex occurrences
+            self.data_queue.put(data)
+            time.sleep(0.1)
+
+    def _get_events(self):
+        print("Getting events...")
+        while self.should_read_channel:
+            event_id = self.events_queue.get()  # Blocks until an item is available
+            if self.should_print_events:
+                print(f"Event {event_id} occurred")
+
+    def _detect_stuff(self):
+        print("Detecting stuff...")
+        regex = "STUFF> (\d)"
+        while self.should_read_channel:
+            data = self.data_queue.get()  # Blocks until an item is available
+            stuff_numbers = re.findall(regex, data)
+            for stuff_num in stuff_numbers:
+                if self.should_print_stuff:
+                    print(f"Stuff {stuff_num} occurred")
             if self.should_record_channel:
                 self.recording_file.write(data) 
-            time.sleep(0.1)
+    
+    def output(self, what_to_print="both"):
+        if what_to_print == "events":
+            self.should_print_events = True
+        if what_to_print == "stuff":
+            self.should_print_stuff = True
+        if what_to_print == "both":
+            self.should_print_events = True
+            self.should_print_stuff = True
+        if what_to_print == "off":
+            self.should_print_events = False
+            self.should_print_stuff = False
+
+    def stop(self):
+        print("Stopping reading channel")
+        self.should_read_channel = False
+        self.should_record_channel = False
+        for thread in self.threads:
+            thread.join()
+        self._close_channel()
 
     def write_to_channel(self, file_path):
         with open(file_path, "rb") as input_file:
