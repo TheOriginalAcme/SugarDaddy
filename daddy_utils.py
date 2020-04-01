@@ -1,10 +1,12 @@
-import time
-import random
 from socket import socket
-import signal
-import re
-import threading
 from queue import Queue
+import subprocess
+import threading
+import random
+import signal
+import time
+import re
+import os
 
 
 class DaddyUtils(object):
@@ -33,15 +35,25 @@ class DaddyUtils(object):
         print("Stopping recording channel")
         self.should_record_channel = False
         self.recording_file.close()
+        wav_file_path = os.path.splitext(self.recording_file.name)[0] + ".wav"
+        sox_path = r"C:\Program Files (x86)\sox-14-4-2\sox"  # only in windows... in Linux just use "sox"
+        rc = subprocess.run([sox_path, "-r", "8000", "-e", "mu-law", "-b", "8", "-c", "1", self.recording_file.name, wav_file_path]).returncode
+        if rc != 0:
+            print(f"Failed converting raw audio file to wav. Leaving the raw file ({self.recording_file.name}) for you to investigate")
+            return
+        os.remove(self.recording_file.name)
     
     def _read_channel(self):
         data = self.channel.recv(1024).decode("utf-8")
+        # data = self.channel.recv(1024)  # for real will be bytes
         print(data)
         return data
 
     def record_channel(self, output_file_path):
-        print(f"Recording channel into {output_file_path}... (Press Ctrl+C to stop)")
-        self.recording_file = open(output_file_path, "w")
+        file_path_without_extension = os.path.splitext(output_file_path)[0]
+        print(f"Recording channel into {file_path_without_extension}.wav... (Press Ctrl+C to stop)")
+        raw_audio_file_path = file_path_without_extension + ".raw"
+        self.recording_file = open(raw_audio_file_path, "w")  # for real the mode will be 'wb'
         self.should_record_channel = True
         signal.signal(signal.SIGINT, self._stop_recording_channel)
         while self.should_record_channel:
@@ -117,7 +129,7 @@ class DaddyUtils(object):
         print("Starting specific event. It will continue until stop_specific_event")
         self.is_specific_event_on = True
         specific_sender = threading.Thread(target=self._send_specific_event)
-        # self.channel.send(b"SPECIFIC_EVENT started") <- for real
+        # self.channel.send(b"SPECIFIC_EVENT started") <- for real bcz don't need the thread above
         specific_sender.start()
 
     def stop_specific_event(self):

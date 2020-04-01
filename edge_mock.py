@@ -27,6 +27,11 @@ def randomly_send_something(channel: socket):
     if rand > 0.8:
         send_stuff(channel)
 
+def send_raw_audio(channel: socket):
+    with open("binary_ulaw.raw", "rb") as raw_audio_file:
+        raw_audio_bytes = raw_audio_file.read()
+    channel.send(raw_audio_bytes)
+
 def main():
     server = socket()
     server.bind(("", 12345))
@@ -55,6 +60,9 @@ def main():
 
         for ch in writable:
             randomly_send_something(ch)
+            # for testing:
+            # time.sleep(5)
+            # send_raw_audio(ch)
 
         for ch in exceptional:
             inputs.remove(ch)
