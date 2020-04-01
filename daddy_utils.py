@@ -136,7 +136,3 @@ class DaddyUtils(object):
         print("Stopping specific event")
         # self.channel.send(b"SPECIFIC_EVENT stopped") <- for real
         self.is_specific_event_on = False
-
-
-if __name__ == "__main__":
-    daddy = DaddyUtils()
